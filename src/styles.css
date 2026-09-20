@@ -1,0 +1,133 @@
+@import url("https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,500;0,9..144,600;1,9..144,500;1,9..144,600&family=Noto+Sans+SC:wght@400;500;600&family=Noto+Serif+SC:wght@500;600&family=Outfit:wght@400;500;600&display=swap");
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@theme {
+  --color-bg: #0c0b09;
+  --color-surface: #151310;
+  --color-elevated: #1d1a16;
+  --color-fg: #f3eee4;
+  --color-muted: #9a9186;
+  --color-subtle: #6e675e;
+  --color-accent: #e8e0d2;
+  --color-accent-fg: #0c0b09;
+  --color-border: #2a2620;
+  --color-success: #7d9a78;
+  --color-danger: #c45c4a;
+  --color-paper: #e8e0d2;
+  --color-paper-fg: #1c1916;
+  --color-paper-line: #2c2822;
+  --color-key-white: #f3eee4;
+  --color-key-white-fg: #1a1612;
+  --color-key-black: #1a1612;
+  --color-key-black-fg: #f3eee4;
+  --color-key-active: #7d9a78;
+  --color-key-expect: #c4b8a4;
+  --color-key-wrong: #c45c4a;
+
+  --font-display: "Fraunces", "Noto Serif SC", serif;
+  --font-sans: "Outfit", "Noto Sans SC", system-ui, sans-serif;
+  --font-serif: "Noto Serif SC", "Fraunces", serif;
+
+  --radius-xs: 4px;
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 24px;
+
+  --shadow-border: 0 0 0 1px rgba(243, 238, 228, 0.08);
+  --shadow-border-hover: 0 0 0 1px rgba(243, 238, 228, 0.14);
+}
+
+@layer base {
+  * {
+    border-color: var(--color-border);
+  }
+
+  html {
+    color-scheme: dark;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body {
+    background: var(--color-bg);
+    color: var(--color-fg);
+    font-family: var(--font-sans);
+    min-height: 100dvh;
+  }
+
+  button:not(:disabled),
+  [role="button"]:not(:disabled) {
+    cursor: pointer;
+  }
+
+  h1,
+  h2,
+  h3 {
+    text-wrap: balance;
+    font-family: var(--font-display);
+  }
+
+  p {
+    text-wrap: pretty;
+  }
+
+  :focus-visible {
+    outline: 2px solid color-mix(in oklab, var(--color-accent) 70%, transparent);
+    outline-offset: 2px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+@keyframes ivory-enter {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes ivory-pulse {
+  0%,
+  100% {
+    opacity: 0.45;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+.stagger-in > * {
+  animation: ivory-enter 400ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.stagger-in > *:nth-child(1) {
+  animation-delay: 0ms;
+}
+.stagger-in > *:nth-child(2) {
+  animation-delay: 40ms;
+}
+.stagger-in > *:nth-child(3) {
+  animation-delay: 80ms;
+}
+.stagger-in > *:nth-child(4) {
+  animation-delay: 120ms;
+}
+.stagger-in > *:nth-child(5) {
+  animation-delay: 160ms;
+}
+.stagger-in > *:nth-child(6) {
+  animation-delay: 200ms;
+}
