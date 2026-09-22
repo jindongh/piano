@@ -1,6 +1,6 @@
 import { uid } from "@/lib/utils";
-import { beatsPerBar, midiToName, nameToMidi } from "./theory";
-import type { ScoreNote, TimeSig } from "./types";
+import { beatsPerBar, midiToName, nameToMidi, staffForMidi } from "./theory";
+import type { ClefKind, ScoreNote, StaffId, TimeSig } from "./types";
 
 function parseDuration(raw: string | undefined): number {
   if (!raw) return 1;
@@ -39,6 +39,7 @@ type TokenPitch = { midi: number; beats: number } | { rest: true; beats: number 
 function parsePitchToken(token: string): TokenPitch | null {
   const rest = /^(?:R|r)(\/\d+\.*)?$/.exec(token);
   if (rest) return { rest: true, beats: parseDuration(rest[1]) };
+
   const m = /^([A-G][#b]?(?:-?\d))(\/\d+\.*)?$/.exec(token);
   if (!m) return null;
   const midi = nameToMidi(m[1]!);
@@ -46,8 +47,15 @@ function parsePitchToken(token: string): TokenPitch | null {
   return { midi, beats: parseDuration(m[2]) };
 }
 
-export function parseNotation(input: string): ScoreNote[] {
-  const tokens = input.replace(/\n/g, " ").split(/\s+/).filter((t) => t && t !== "|" && t !== "||" && t !== "/");
+function withStaff(midi: number, beats: number, start: number, id: string): ScoreNote {
+  return { id, type: "note", midi, beats, start, staff: staffForMidi(midi, "grand") };
+}
+
+export function parseNotation(input: string, _clef: ClefKind = "grand"): ScoreNote[] {
+  const tokens = input
+    .replace(/\n/g, " ")
+    .split(/\s+/)
+    .filter((t) => t && t !== "|" && t !== "||" && t !== "/");
   const notes: ScoreNote[] = [];
   let t = 0;
   for (const raw of tokens) {
@@ -60,7 +68,7 @@ export function parseNotation(input: string): ScoreNote[] {
       for (const p of inner.split(/[,]+/)) {
         const midi = nameToMidi(p.trim());
         if (midi == null) continue;
-        notes.push({ id: `n${notes.length}`, type: "note", midi, beats, start: t });
+        notes.push(withStaff(midi, beats, t, `n${notes.length}`));
       }
       t += beats;
       continue;
@@ -68,9 +76,9 @@ export function parseNotation(input: string): ScoreNote[] {
     const parsed = parsePitchToken(raw);
     if (!parsed) continue;
     if ("rest" in parsed) {
-      notes.push({ id: `n${notes.length}`, type: "rest", beats: parsed.beats, start: t });
+      notes.push({ id: `n${notes.length}`, type: "rest", beats: parsed.beats, start: t, staff: _clef === "bass" ? "bass" : "treble" });
     } else {
-      notes.push({ id: `n${notes.length}`, type: "note", midi: parsed.midi, beats: parsed.beats, start: t });
+      notes.push(withStaff(parsed.midi, parsed.beats, t, `n${notes.length}`));
     }
     t += parsed.beats;
   }
@@ -103,7 +111,8 @@ export function serializeNotation(notes: ScoreNote[], time?: TimeSig): string {
     const beats = g[0]?.beats ?? 1;
     const dur = durationToken(beats);
     if (sounding.length > 1) {
-      tokens.push(`[${sounding.map((n) => midiToName(n.midi!)).join(",")}]${dur}`);
+      const chord = sounding.map((n) => midiToName(n.midi!)).join(",");
+      tokens.push(`[${chord}]${dur}`);
     } else if (sounding.length === 1) {
       tokens.push(`${midiToName(sounding[0]!.midi!)}${dur}`);
     } else if (rest) {
@@ -113,14 +122,24 @@ export function serializeNotation(notes: ScoreNote[], time?: TimeSig): string {
   return tokens.join(" ");
 }
 
-export function appendNote(notes: ScoreNote[], midi: number, beats: number): ScoreNote[] {
+export function appendNote(notes: ScoreNote[], midi: number, beats: number, staff?: StaffId): ScoreNote[] {
   const lastEnd = notes.reduce((m, n) => Math.max(m, n.start + n.beats), 0);
-  return [...notes, { id: uid(), type: "note", midi, beats, start: lastEnd }];
+  return [
+    ...notes,
+    {
+      id: uid(),
+      type: "note",
+      midi,
+      beats,
+      start: lastEnd,
+      staff: staff ?? staffForMidi(midi, "grand"),
+    },
+  ];
 }
 
-export function appendRest(notes: ScoreNote[], beats: number): ScoreNote[] {
+export function appendRest(notes: ScoreNote[], beats: number, staff: StaffId = "treble"): ScoreNote[] {
   const lastEnd = notes.reduce((m, n) => Math.max(m, n.start + n.beats), 0);
-  return [...notes, { id: uid(), type: "rest", beats, start: lastEnd }];
+  return [...notes, { id: uid(), type: "rest", beats, start: lastEnd, staff }];
 }
 
 export function dropLast(notes: ScoreNote[]): ScoreNote[] {

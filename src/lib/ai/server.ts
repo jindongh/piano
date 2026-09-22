@@ -11,6 +11,7 @@ const SCORE_SCHEMA = {
     tempo: { type: "number" },
     notation: { type: "string" },
     notes: { type: "string" },
+    clef: { type: "string" },
   },
   required: ["title", "notation"],
 } as const;
@@ -53,17 +54,28 @@ async function grokChat(opts: {
   if (opts.schema) {
     body.response_format = {
       type: "json_schema",
-      json_schema: { name: opts.schema.name, schema: opts.schema.schema, strict: true },
+      json_schema: {
+        name: opts.schema.name,
+        schema: opts.schema.schema,
+        strict: true,
+      },
     };
   }
 
   const res = await fetch("https://api.x.ai/v1/chat/completions", {
     method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey}`,
+    },
     body: JSON.stringify(body),
   });
-  if (!res.ok) return { ok: false, error: `识别服务暂时不可用（${res.status}）` };
-  const json = (await res.json()) as { choices?: { message?: { content?: string } }[] };
+  if (!res.ok) {
+    return { ok: false, error: `识别服务暂时不可用（${res.status}）` };
+  }
+  const json = (await res.json()) as {
+    choices?: { message?: { content?: string } }[];
+  };
   const text = json.choices?.[0]?.message?.content ?? "";
   return { ok: true, text };
 }
@@ -78,13 +90,14 @@ export const recognizeScore = createServerFn({ method: "POST" })
       return { ok: false as const, error: "图片太大，请换一张更清晰的局部谱" };
     }
 
-    const prompt = `你是乐谱识谱助手。从图片中提取主旋律（忽略歌词、伴奏织体如果太密就只取最高声部）。
+    const prompt = `你是乐谱识谱助手。从图片中提取钢琴谱。若有高音与低音双谱表，两个声部都要提取。
 用简易记谱输出：音名+八度+时值。规则：
-- 音名如 C4 D#4 Bb3，休止符 R
+- 音名如 C4 D#4 Bb3 C3，休止符 R
 - 时值：/1 全音符 /2 二分 /4 或不写 四分 /8 八分 /16 十六分，附点在后如 /2.
 - 小节线用 |
-- 同时发响的和弦用 [C4,E4,G4]/4
-只返回 JSON：{"title":string,"composer":string,"key":string,"timeSignature":"4/4","tempo":number,"notation":string}
+- 同时发响的和弦（含左右手同时）用 [C3,C4,E4,G4]/4
+clef 取值 treble（仅高音谱）、bass（仅低音谱）、grand（大谱表/双手）
+只返回 JSON：{"title":string,"composer":string,"key":string,"timeSignature":"4/4","tempo":number,"clef":"treble"|"bass"|"grand","notation":string}
 key 用 C G D A F Bb Am 等。timeSignature 形如 4/4 或 3/4。notation 是一整串记谱。`;
 
     const result = await grokChat({
@@ -95,7 +108,10 @@ key 用 C G D A F Bb Am 等。timeSignature 形如 4/4 或 3/4。notation 是一
           role: "user",
           content: [
             { type: "text", text: prompt },
-            { type: "image_url", image_url: { url: data.imageDataUrl, detail: "high" } },
+            {
+              type: "image_url",
+              image_url: { url: data.imageDataUrl, detail: "high" },
+            },
           ],
         },
       ],
@@ -110,6 +126,8 @@ key 用 C G D A F Bb Am 等。timeSignature 形如 4/4 或 3/4。notation 是一
     const tsParts = tsRaw.split("/");
     const num = Number(tsParts[0]) || 4;
     const den = Number(tsParts[1]) || 4;
+    const rawClef = String(parsed.clef || "").toLowerCase();
+    const clef = rawClef === "bass" || rawClef === "grand" ? rawClef : "treble";
     return {
       ok: true as const,
       title: String(parsed.title || "未命名曲谱"),
@@ -118,6 +136,7 @@ key 用 C G D A F Bb Am 等。timeSignature 形如 4/4 或 3/4。notation 是一
       timeSignature: { num, den },
       tempo: Math.max(40, Math.min(200, Number(parsed.tempo) || 90)),
       notation: String(parsed.notation).trim(),
+      clef: clef as "treble" | "bass" | "grand",
     };
   });
 

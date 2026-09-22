@@ -1,18 +1,20 @@
 import { useEffect, useRef, useState } from "react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { Camera, ImagePlus, LoaderCircle, PenLine } from "lucide-react";
+import { Camera, ImagePlus, LoaderCircle, PenLine, Usb } from "lucide-react";
 import { toast } from "sonner";
 import { AppShell } from "@/components/app-shell";
 import { PieceEditor, emptyDraft, type Draft } from "@/components/piece-editor";
 import { Button } from "@/components/ui/button";
 import { recognizeScore } from "@/lib/ai/server";
-import { parseNotation } from "@/lib/music/notation";
+import { parseMidiFile } from "@/lib/music/midi-capture";
+import { parseNotation, serializeNotation } from "@/lib/music/notation";
+import { inferClef } from "@/lib/music/theory";
 import { usePiecesStore } from "@/lib/store/pieces";
 import { cn, compressImage } from "@/lib/utils";
 
 export const Route = createFileRoute("/new")({ component: NewPiece });
 
-type Method = "camera" | "upload" | "editor";
+type Method = "camera" | "upload" | "editor" | "midi";
 
 function NewPiece() {
   const navigate = useNavigate();
@@ -25,6 +27,7 @@ function NewPiece() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const midiRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     return () => stopCam();
@@ -71,7 +74,7 @@ function NewPiece() {
         );
         return;
       }
-      const notes = parseNotation(result.notation);
+      const notes = parseNotation(result.notation, result.clef);
       if (!notes.length) toast.message("已读到图片，请核对手写记谱。");
       setDraft(
         emptyDraft({
@@ -84,11 +87,41 @@ function NewPiece() {
           tempo: result.tempo,
           notation: result.notation,
           notes,
+          clef: result.clef,
         }),
       );
       toast.success("已识别，请核对五线谱后保存。");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "处理图片失败");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function ingestMidi(file: File) {
+    setBusy(true);
+    try {
+      const parsed = parseMidiFile(await file.arrayBuffer());
+      if ("error" in parsed) {
+        toast.error(parsed.error);
+        return;
+      }
+      const { notes, tempo } = parsed;
+      const clef = inferClef(notes);
+      setDraft(
+        emptyDraft({
+          source: "midi",
+          title: file.name.replace(/\.(mid|midi)$/i, "") || "MIDI 曲谱",
+          composer: "MIDI",
+          tempo,
+          notes,
+          notation: serializeNotation(notes),
+          clef,
+        }),
+      );
+      toast.success(`已读入 ${notes.length} 个音，请核对后保存。`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "无法读取 MIDI");
     } finally {
       setBusy(false);
     }
@@ -117,23 +150,23 @@ function NewPiece() {
     void navigate({ to: "/p/$id", params: { id: piece.id } });
   }
 
+  const methodLabel =
+    method === "camera" ? "拍照" : method === "upload" ? "上传" : method === "midi" ? "MIDI" : "在线输入";
+
   return (
     <AppShell
       compact
-      right={
-        <span className="text-sm text-muted">
-          {method === "camera" ? "拍照" : method === "upload" ? "上传" : "在线输入"}
-        </span>
-      }
+      right={<span className="text-sm text-muted">{methodLabel}</span>}
     >
       <h1 className="font-serif text-3xl font-medium tracking-tight">录入曲谱</h1>
-      <p className="mt-1 mb-6 text-sm text-muted">三种方式，识别后都可以改。谱面只存在这台设备上。</p>
+      <p className="mt-1 mb-6 text-sm text-muted">拍照、上传、手写或 MIDI。识别后都可以改，谱面只存在这台设备上。</p>
 
       <div className="mb-6 flex flex-wrap gap-2">
         {(
           [
             { id: "camera", label: "拍照", icon: Camera },
             { id: "upload", label: "上传图片", icon: ImagePlus },
+            { id: "midi", label: "MIDI 录入", icon: Usb },
             { id: "editor", label: "在线输入", icon: PenLine },
           ] as const
         ).map((m) => (
@@ -144,6 +177,11 @@ function NewPiece() {
               setMethod(m.id);
               if (m.id === "camera") void startCam();
               else stopCam();
+              if (m.id === "midi") {
+                setDraft((d) =>
+                  d.notes.length ? d : emptyDraft({ ...d, source: "midi", clef: "grand" }),
+                );
+              }
             }}
             className={cn(
               "inline-flex h-11 items-center gap-2 rounded-md px-4 text-sm font-medium",
@@ -204,6 +242,35 @@ function NewPiece() {
         </div>
       )}
 
+      {method === "midi" && (
+        <div className="mb-6">
+          <button
+            type="button"
+            onClick={() => midiRef.current?.click()}
+            onDragOver={(e) => e.preventDefault()}
+            onDrop={(e) => {
+              e.preventDefault();
+              const f = e.dataTransfer.files[0];
+              if (f) void ingestMidi(f);
+            }}
+            className="flex w-full flex-col items-center gap-2 rounded-xl border border-dashed border-border bg-surface px-6 py-12 text-sm text-muted"
+          >
+            <Usb className="size-7" />
+            拖入 .mid 文件，或用下方编辑器接 MIDI 键盘录制
+          </button>
+          <input
+            ref={midiRef}
+            type="file"
+            accept=".mid,.midi,audio/midi,audio/x-midi"
+            className="hidden"
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              if (f) void ingestMidi(f);
+            }}
+          />
+        </div>
+      )}
+
       {busy && (
         <p className="mb-4 flex items-center gap-2 text-sm text-muted">
           <LoaderCircle className="size-4 animate-spin" />
@@ -211,7 +278,7 @@ function NewPiece() {
         </p>
       )}
 
-      {(method === "editor" || preview || draft.notes.length > 0) && (
+      {(method === "editor" || method === "midi" || preview || draft.notes.length > 0) && (
         <PieceEditor draft={draft} onChange={setDraft} onSave={save} saveLabel="收入曲库" />
       )}
     </AppShell>

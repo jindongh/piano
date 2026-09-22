@@ -9,7 +9,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import type { Piece } from "@/lib/music/types";
+import type { ClefKind, Piece } from "@/lib/music/types";
 import { usePiecesStore } from "@/lib/store/pieces";
 
 const SOURCE: Record<Piece["source"], string> = {
@@ -17,6 +17,13 @@ const SOURCE: Record<Piece["source"], string> = {
   upload: "上传",
   camera: "拍照",
   editor: "手写",
+  midi: "MIDI",
+};
+
+const CLEF_LABEL: Record<ClefKind, string> = {
+  treble: "高音谱",
+  bass: "低音谱",
+  grand: "大谱表",
 };
 
 export function PieceCard({ piece }: { piece: Piece }) {
@@ -28,12 +35,22 @@ export function PieceCard({ piece }: { piece: Piece }) {
   return (
     <article className="group flex flex-col overflow-hidden rounded-xl bg-surface shadow-[var(--shadow-border)] transition-[box-shadow] duration-150 hover:shadow-[var(--shadow-border-hover)]">
       <Link to="/p/$id" params={{ id: piece.id }} className="block p-3 pb-0">
-        <StaffView notes={piece.notes.slice(0, 24)} timeSignature={piece.timeSignature} keySignature={piece.key} compact />
+        <StaffView
+          notes={piece.notes.slice(0, 24)}
+          timeSignature={piece.timeSignature}
+          keySignature={piece.key}
+          clef={piece.clef ?? "treble"}
+          compact
+        />
       </Link>
       <div className="flex flex-1 flex-col gap-3 p-4">
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0">
-            <Link to="/p/$id" params={{ id: piece.id }} className="block truncate font-serif text-lg font-medium tracking-tight text-fg no-underline">
+            <Link
+              to="/p/$id"
+              params={{ id: piece.id }}
+              className="block truncate font-serif text-lg font-medium tracking-tight text-fg no-underline"
+            >
               {piece.title}
             </Link>
             <p className="mt-0.5 truncate text-sm text-muted">{piece.composer}</p>
@@ -62,7 +79,8 @@ export function PieceCard({ piece }: { piece: Piece }) {
           </DropdownMenu>
         </div>
         <div className="flex flex-wrap items-center gap-1.5">
-          <Badge>{SOURCE[piece.source]}</Badge>
+          <Badge>{SOURCE[piece.source] ?? "曲谱"}</Badge>
+          <Badge>{CLEF_LABEL[piece.clef ?? "treble"]}</Badge>
           <Badge>
             {piece.timeSignature.num}/{piece.timeSignature.den}
           </Badge>

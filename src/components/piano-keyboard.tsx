@@ -6,7 +6,7 @@ type Props = {
   startMidi?: number;
   endMidi?: number;
   active: Set<number>;
-  expected?: number | null;
+  expected?: number | Set<number> | null;
   wrong?: Set<number>;
   showHints?: boolean;
   onDown: (midi: number) => void;
@@ -38,6 +38,8 @@ export function PianoKeyboard({
   }, [startMidi, endMidi]);
 
   const firstWhite = whiteKeyIndex(whites[0] ?? startMidi);
+  const expectSet =
+    expected instanceof Set ? expected : expected != null ? new Set([expected]) : new Set<number>();
 
   function bind(midi: number) {
     return {
@@ -53,11 +55,14 @@ export function PianoKeyboard({
 
   return (
     <div className={cn("overflow-x-auto", className)}>
-      <div className="relative select-none" style={{ touchAction: "none", minWidth: `max(100%, ${whites.length * 32}px)` }}>
+      <div
+        className="relative select-none"
+        style={{ touchAction: "none", minWidth: `max(100%, ${whites.length * 32}px)` }}
+      >
         <div className="flex h-36 w-full sm:h-40">
           {whites.map((midi) => {
             const on = active.has(midi);
-            const isExp = expected === midi;
+            const isExp = expectSet.has(midi);
             const isWrong = wrong?.has(midi);
             const hint = HINT_FOR_MIDI[midi];
             return (
@@ -76,7 +81,9 @@ export function PianoKeyboard({
                 {...bind(midi)}
               >
                 {showHints && hint && (
-                  <span className="absolute inset-x-0 bottom-2 text-center text-[10px] font-medium text-subtle">{hint}</span>
+                  <span className="absolute inset-x-0 bottom-2 text-center text-[10px] font-medium text-subtle">
+                    {hint}
+                  </span>
                 )}
               </button>
             );
@@ -88,7 +95,7 @@ export function PianoKeyboard({
             const left = (idx / whites.length) * 100;
             const w = (1 / whites.length) * 100 * 0.62;
             const on = active.has(midi);
-            const isExp = expected === midi;
+            const isExp = expectSet.has(midi);
             const isWrong = wrong?.has(midi);
             const hint = HINT_FOR_MIDI[midi];
             return (
@@ -108,7 +115,9 @@ export function PianoKeyboard({
                 {...bind(midi)}
               >
                 {showHints && hint && (
-                  <span className="absolute inset-x-0 bottom-1.5 text-center text-[9px] font-medium opacity-80">{hint}</span>
+                  <span className="absolute inset-x-0 bottom-1.5 text-center text-[9px] font-medium opacity-80">
+                    {hint}
+                  </span>
                 )}
               </button>
             );

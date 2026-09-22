@@ -86,6 +86,11 @@ export const usePiecesStore = create<PiecesState>()(
             }));
             state.hasSeeded = true;
           }
+          const hands = DEMO_PIECES.find((d) => d.id === "demo-hands");
+          if (hands && !state.pieces.some((p) => p.id === "demo-hands")) {
+            state.pieces = [...state.pieces, { ...hands, notes: hands.notes.map((n) => ({ ...n })), history: [] }];
+          }
+          state.pieces = state.pieces.map((p) => ({ ...p, clef: p.clef ?? "treble" }));
           state.setHydrated();
           return;
         }

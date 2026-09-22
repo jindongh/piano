@@ -1,3 +1,6 @@
+export type ClefKind = "treble" | "bass" | "grand";
+export type StaffId = "treble" | "bass";
+
 export type ScoreNote = {
   id: string;
   type: "note" | "rest";
@@ -6,6 +9,8 @@ export type ScoreNote = {
   beats: number;
   /** Start position in quarter-note beats */
   start: number;
+  /** Which staff to draw on in a grand-staff score */
+  staff?: StaffId;
 };
 
 export type TimeSig = { num: number; den: number };
@@ -24,7 +29,7 @@ export type PracticeRecord = {
   wrongPitches: number[];
 };
 
-export type PieceSource = "upload" | "camera" | "editor" | "demo";
+export type PieceSource = "upload" | "camera" | "editor" | "demo" | "midi";
 
 export type Piece = {
   id: string;
@@ -39,6 +44,7 @@ export type Piece = {
   timeSignature: TimeSig;
   tempo: number;
   key: string;
+  clef: ClefKind;
   history: PracticeRecord[];
 };
 

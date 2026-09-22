@@ -27,7 +27,7 @@ function Home() {
         <p className="text-xs tracking-[0.18em] text-muted uppercase">曲库</p>
         <h1 className="mt-2 font-serif text-3xl font-medium tracking-tight sm:text-4xl">今晚练哪一首</h1>
         <p className="mt-2 max-w-xl text-sm text-muted">
-          拍照或上传五线谱，也可以在线录入。跟弹对照、MIDI 接入，练完给出评分与指导。
+          拍照、上传、在线录入或 MIDI 键盘录制。大谱表双手对照，练完给出评分与指导。
         </p>
       </div>
 

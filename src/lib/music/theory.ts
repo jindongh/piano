@@ -1,3 +1,5 @@
+import type { ClefKind, StaffId } from "./types";
+
 const SEMI: Record<string, number> = {
   C: 0,
   D: 2,
@@ -30,6 +32,18 @@ export const KEYS = [
 ] as const;
 
 export type KeyName = (typeof KEYS)[number];
+
+export const CLEFS: { id: ClefKind; label: string }[] = [
+  { id: "treble", label: "高音谱号" },
+  { id: "bass", label: "低音谱号" },
+  { id: "grand", label: "大谱表" },
+];
+
+/** Treble: F5…E4; bass: A3…G2. */
+export const STAFF_RANGE = {
+  treble: { topStep: 38, botStep: 30, midStep: 34, sharp: [38, 35, 39, 36, 33, 37, 34], flat: [34, 37, 33, 36, 32, 35, 31] },
+  bass: { topStep: 26, botStep: 18, midStep: 22, sharp: [24, 28, 25, 29, 26, 30, 27], flat: [27, 23, 26, 22, 25, 21, 24] },
+} as const;
 
 const SHARP_ORDER = ["F", "C", "G", "D", "A", "E", "B"] as const;
 const FLAT_ORDER = ["B", "E", "A", "D", "G", "C", "F"] as const;
@@ -129,6 +143,22 @@ export function whiteKeyIndex(midi: number) {
     if (!isBlackKey(m)) count++;
   }
   return count;
+}
+
+export function staffForMidi(midi: number, clef: ClefKind = "grand"): StaffId {
+  if (clef === "treble") return "treble";
+  if (clef === "bass") return "bass";
+  return midi >= 60 ? "treble" : "bass";
+}
+
+export function inferClef(notes: { midi?: number; type: string }[]): ClefKind {
+  const sounding = notes.filter((n) => n.type === "note" && n.midi != null).map((n) => n.midi!);
+  if (!sounding.length) return "grand";
+  const hasHigh = sounding.some((m) => m >= 60);
+  const hasLow = sounding.some((m) => m < 60);
+  if (hasHigh && hasLow) return "grand";
+  if (hasLow) return "bass";
+  return "treble";
 }
 
 export const COMPUTER_KEY_MAP: Record<string, number> = {
