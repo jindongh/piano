@@ -1,0 +1,19 @@
+name: piano
+
+networks:
+  piano:
+    external: true
+
+services:
+  piano:
+    build: .
+    image: piano:latest
+    container_name: piano
+    restart: unless-stopped
+    networks:
+      - piano
+    ports:
+      - '3000:3000'
+    environment:
+      - PORT=3000
+      - HOST=0.0.0.0
