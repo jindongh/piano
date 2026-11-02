@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Circle, Pause, Play, Square, Trash2, Undo, Usb } from "lucide-react";
+import { toast } from "sonner";
 import { PianoKeyboard } from "@/components/piano-keyboard";
 import { StaffView } from "@/components/staff-view";
 import { Button } from "@/components/ui/button";
@@ -9,6 +10,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { bindComputerKeys, bindMidi, type MidiStatus } from "@/lib/audio/input";
 import { getPiano } from "@/lib/audio/piano";
+import {
+  alignLyricsToNotes,
+  clearLyricsFromNotes,
+  extractLyricsFromNotes,
+  getMelodyNotes,
+  tokenizeLyrics,
+} from "@/lib/music/lyrics";
 import { holdsToNotes, type MidiHold } from "@/lib/music/midi-capture";
 import {
   DURATION_PRESETS,
@@ -18,7 +26,7 @@ import {
   parseNotation,
   serializeNotation,
 } from "@/lib/music/notation";
-import { CLEFS, KEYS, inferClef, staffForMidi, totalBeats } from "@/lib/music/theory";
+import { CLEFS, KEYS, inferClef, midiToName, staffForMidi, totalBeats } from "@/lib/music/theory";
 import type { ClefKind, Piece, PieceSource, ScoreNote, StaffId, TimeSig } from "@/lib/music/types";
 import { cn } from "@/lib/utils";
 
@@ -33,6 +41,7 @@ export type Draft = {
   imageThumb?: string;
   source: PieceSource;
   clef: ClefKind;
+  lyricsText?: string;
 };
 
 export function emptyDraft(partial?: Partial<Draft>): Draft {
@@ -46,6 +55,7 @@ export function emptyDraft(partial?: Partial<Draft>): Draft {
     notes: [],
     source: "editor",
     clef: "grand",
+    lyricsText: "",
     ...partial,
   };
 }
@@ -62,6 +72,7 @@ export function pieceToDraft(p: Piece): Draft {
     imageThumb: p.imageThumb,
     source: p.source,
     clef: p.clef ?? "treble",
+    lyricsText: p.lyricsText || extractLyricsFromNotes(p.notes),
   };
 }
 
@@ -98,6 +109,9 @@ export function PieceEditor({
   const [recPhase, setRecPhase] = useState<"idle" | "count" | "rec">("idle");
   const [count, setCount] = useState(0);
   const [grid, setGrid] = useState(0.25);
+  const [selectedNoteId, setSelectedNoteId] = useState<string | null>(null);
+  const [lyricsInput, setLyricsInput] = useState(() => draft.lyricsText || extractLyricsFromNotes(draft.notes));
+
   const draftRef = useRef(draft);
   const beatsRef = useRef(beats);
   const onChangeRef = useRef(onChange);
@@ -113,6 +127,15 @@ export function PieceEditor({
   recPhaseRef.current = recPhase;
   gridRef.current = grid;
 
+  useEffect(() => {
+    if (draft.lyricsText != null) {
+      setLyricsInput(draft.lyricsText);
+    } else {
+      const extracted = extractLyricsFromNotes(draft.notes);
+      if (extracted) setLyricsInput(extracted);
+    }
+  }, [draft.lyricsText, draft.notes]);
+
   function commit(notes: ScoreNote[], extra?: Partial<Draft>) {
     setUndo((u) => [...u.slice(-30), draft.notes]);
     onChange({
@@ -121,6 +144,26 @@ export function PieceEditor({
       notes,
       notation: serializeNotation(notes, extra?.timeSignature ?? draft.timeSignature),
     });
+  }
+
+  function handleApplyLyrics() {
+    const tokens = tokenizeLyrics(lyricsInput);
+    if (!tokens.length) {
+      toast.error("请输入歌词文本");
+      return;
+    }
+    const newNotes = alignLyricsToNotes(draft.notes, tokens);
+    const melodyCount = getMelodyNotes(newNotes).length;
+    const matchedCount = Math.min(tokens.length, melodyCount);
+    commit(newNotes, { lyricsText: lyricsInput });
+    toast.success(`已为 ${matchedCount} 个音符分配歌词`);
+  }
+
+  function handleClearLyrics() {
+    const newNotes = clearLyricsFromNotes(draft.notes);
+    setLyricsInput("");
+    commit(newNotes, { lyricsText: "" });
+    toast.success("已清空歌词");
   }
 
   function addPitch(midi: number, staff?: StaffId) {
@@ -250,6 +293,9 @@ export function PieceEditor({
   const canSave = draft.title.trim() && draft.notes.some((n) => n.type === "note");
   const kbStart = draft.clef === "treble" ? 60 : 36;
   const kbEnd = draft.clef === "bass" ? 64 : 84;
+  const soundingNotes = draft.notes.filter((n) => n.type === "note" && n.midi != null);
+  const selectedNote = draft.notes.find((n) => n.id === selectedNoteId);
+  const lyricsCount = draft.notes.filter((n) => !!n.lyric).length;
 
   return (
     <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_16rem]">
@@ -260,6 +306,8 @@ export function PieceEditor({
             timeSignature={draft.timeSignature}
             keySignature={draft.key}
             clef={draft.clef}
+            selectedNoteId={selectedNoteId}
+            onNoteClick={(id) => setSelectedNoteId((prev) => (prev === id ? null : id))}
             onPitchAppend={(midi, staff) => {
               if (recPhaseRef.current !== "idle") return;
               addPitch(midi, staff);
@@ -277,6 +325,85 @@ export function PieceEditor({
             </div>
           )}
         </div>
+
+        {selectedNote && (
+          <div className="flex flex-wrap items-center gap-2.5 rounded-lg border border-accent/40 bg-accent/10 px-3 py-2 text-xs">
+            <span className="font-semibold text-fg">
+              {selectedNote.midi ? midiToName(selectedNote.midi) : "休止符"}
+              <span className="ml-1 font-normal text-muted">
+                (第 {Math.floor(selectedNote.start + 1)} 拍，{selectedNote.beats} 拍)
+              </span>
+            </span>
+            <div className="flex items-center gap-1.5">
+              <Label htmlFor="note-lyric-input" className="text-xs text-muted">
+                单音歌词:
+              </Label>
+              <Input
+                id="note-lyric-input"
+                value={selectedNote.lyric || ""}
+                placeholder="填字 (按 Enter 跳至下一音)"
+                className="h-7 w-28 text-xs font-serif"
+                onChange={(e) => {
+                  const val = e.target.value;
+                  const updated = draft.notes.map((n) =>
+                    n.id === selectedNote.id ? { ...n, lyric: val || undefined } : n,
+                  );
+                  commit(updated);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === "Tab") {
+                    e.preventDefault();
+                    const idx = soundingNotes.findIndex((n) => n.id === selectedNote.id);
+                    if (idx >= 0 && idx < soundingNotes.length - 1) {
+                      setSelectedNoteId(soundingNotes[idx + 1]!.id);
+                    }
+                  }
+                }}
+                autoFocus
+              />
+            </div>
+            <div className="ml-auto flex items-center gap-1">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-7 px-2 text-xs"
+                disabled={soundingNotes.findIndex((n) => n.id === selectedNote.id) <= 0}
+                onClick={() => {
+                  const idx = soundingNotes.findIndex((n) => n.id === selectedNote.id);
+                  if (idx > 0) setSelectedNoteId(soundingNotes[idx - 1]!.id);
+                }}
+              >
+                上一个
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-7 px-2 text-xs"
+                disabled={soundingNotes.findIndex((n) => n.id === selectedNote.id) >= soundingNotes.length - 1}
+                onClick={() => {
+                  const idx = soundingNotes.findIndex((n) => n.id === selectedNote.id);
+                  if (idx >= 0 && idx < soundingNotes.length - 1) {
+                    setSelectedNoteId(soundingNotes[idx + 1]!.id);
+                  }
+                }}
+              >
+                下一个
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-7 px-2 text-xs text-muted"
+                onClick={() => setSelectedNoteId(null)}
+              >
+                完成
+              </Button>
+            </div>
+          </div>
+        )}
+
         <div className="flex flex-wrap items-center gap-2">
           {DURATION_PRESETS.map((d) => (
             <button
@@ -365,7 +492,7 @@ export function PieceEditor({
         </div>
 
         <p className="text-xs text-muted">
-          点谱、琴键、电脑键盘 A–L，或接 MIDI 键盘逐步录入。录制会按节拍器把演奏量化成谱。
+          点谱、琴键、电脑键盘 A–L，或接 MIDI 键盘逐步录入。点击五线谱上的音符可填单音歌词。
         </p>
         <PianoKeyboard
           startMidi={kbStart}
@@ -374,16 +501,73 @@ export function PieceEditor({
           onDown={(m) => noteOn(m)}
           onUp={noteOff}
         />
+
+        <div className="space-y-2 rounded-xl bg-surface p-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <Label htmlFor="lyrics-text" className="text-xs font-semibold">
+                歌词录入
+              </Label>
+              <span className="text-[11px] text-muted">
+                {lyricsCount > 0
+                  ? `已附歌词 ${lyricsCount} 处`
+                  : "输入或粘贴整段歌词后点击一键匹配，或在五线谱上点击音符录入"}
+              </span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <Button
+                type="button"
+                size="sm"
+                variant="secondary"
+                className="h-7 px-2.5 text-xs"
+                onClick={handleApplyLyrics}
+                disabled={!lyricsInput.trim() || !draft.notes.some((n) => n.type === "note")}
+              >
+                一键匹配到音符
+              </Button>
+              {lyricsCount > 0 && (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  className="h-7 px-2 text-xs text-muted"
+                  onClick={handleClearLyrics}
+                >
+                  清空歌词
+                </Button>
+              )}
+            </div>
+          </div>
+          <Textarea
+            id="lyrics-text"
+            value={lyricsInput}
+            placeholder="输入或粘贴整段歌词（支持中文单字匹配、英文空格/连字符分词，如：一闪一闪亮晶晶 满天都是小星星）"
+            className="h-16 text-xs leading-relaxed font-serif"
+            onChange={(e) => {
+              const val = e.target.value;
+              setLyricsInput(val);
+              onChange({ ...draft, lyricsText: val });
+            }}
+          />
+        </div>
+
         <div className="space-y-1.5">
           <Label htmlFor="notation">记谱文本</Label>
           <Textarea
             id="notation"
             value={draft.notation}
-            placeholder="C4 D4 E4/2 F4 | G4 G4 A4 A4 | G4/2　低音如 C3 G2"
+            placeholder="C4 D4 E4/2 F4 | G4 G4 A4 A4 | G4/2　支持带歌词如 C4&quot;一&quot; D4&quot;闪&quot;"
             className="font-mono text-xs leading-relaxed"
             onChange={(e) => {
               const notation = e.target.value;
-              onChange({ ...draft, notation, notes: parseNotation(notation, draft.clef) });
+              const notes = parseNotation(notation, draft.clef);
+              const extracted = extractLyricsFromNotes(notes);
+              onChange({
+                ...draft,
+                notation,
+                notes,
+                lyricsText: extracted || draft.lyricsText,
+              });
             }}
           />
         </div>

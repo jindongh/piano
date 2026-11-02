@@ -12,6 +12,7 @@ const SCORE_SCHEMA = {
     notation: { type: "string" },
     notes: { type: "string" },
     clef: { type: "string" },
+    lyrics: { type: "string" },
   },
   required: ["title", "notation"],
 } as const;
@@ -97,7 +98,8 @@ export const recognizeScore = createServerFn({ method: "POST" })
 - 小节线用 |
 - 同时发响的和弦（含左右手同时）用 [C3,C4,E4,G4]/4
 clef 取值 treble（仅高音谱）、bass（仅低音谱）、grand（大谱表/双手）
-只返回 JSON：{"title":string,"composer":string,"key":string,"timeSignature":"4/4","tempo":number,"clef":"treble"|"bass"|"grand","notation":string}
+若谱面带有歌词，请将整篇歌词提取在 lyrics 字段中。
+只返回 JSON：{"title":string,"composer":string,"key":string,"timeSignature":"4/4","tempo":number,"clef":"treble"|"bass"|"grand","notation":string,"lyrics":string}
 key 用 C G D A F Bb Am 等。timeSignature 形如 4/4 或 3/4。notation 是一整串记谱。`;
 
     const result = await grokChat({
@@ -137,6 +139,7 @@ key 用 C G D A F Bb Am 等。timeSignature 形如 4/4 或 3/4。notation 是一
       tempo: Math.max(40, Math.min(200, Number(parsed.tempo) || 90)),
       notation: String(parsed.notation).trim(),
       clef: clef as "treble" | "bass" | "grand",
+      lyrics: parsed.lyrics ? String(parsed.lyrics).trim() : undefined,
     };
   });
 

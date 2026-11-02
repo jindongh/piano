@@ -11,6 +11,7 @@ type Props = {
   keySignature?: string;
   clef?: ClefKind;
   cursorIndex?: number;
+  selectedNoteId?: string | null;
   statuses?: Record<string, NoteStatus>;
   onPitchAppend?: (midi: number, staff: StaffId) => void;
   onNoteClick?: (id: string) => void;
@@ -24,6 +25,7 @@ export function StaffView({
   keySignature = "C",
   clef = "treble",
   cursorIndex,
+  selectedNoteId,
   statuses,
   onPitchAppend,
   onNoteClick,
@@ -32,6 +34,7 @@ export function StaffView({
 }: Props) {
   const scroller = useRef<HTMLDivElement>(null);
   const grand = clef === "grand";
+  const hasLyrics = useMemo(() => notes.some((n) => !!n.lyric), [notes]);
   const LINE_GAP = compact ? 8 : 12;
   const padTop = compact ? (grand ? 20 : 16) : grand ? 36 : 28;
   const beatW = compact ? 26 : 44;
@@ -39,12 +42,13 @@ export function StaffView({
   const acc = keyAccidentals(keySignature);
   const accW = acc.letters.length * (compact ? 8 : 11);
   const contentStart = leftPad + accW + (compact ? 16 : 22);
-  const gapBetween = compact ? 22 : 36;
+  const gapBetween = compact ? (hasLyrics && grand ? 34 : 22) : (hasLyrics && grand ? 48 : 36);
   const trebleTop = padTop;
   const bassTop = grand ? trebleTop + LINE_GAP * 4 + gapBetween : padTop;
   const staffs: StaffId[] = clef === "bass" ? ["bass"] : grand ? ["treble", "bass"] : ["treble"];
   const lastStaffTop = staffs[staffs.length - 1] === "bass" ? bassTop : trebleTop;
-  const height = lastStaffTop + LINE_GAP * 4 + padTop;
+  const lyricBottomPad = hasLyrics ? (compact ? 22 : 30) : 0;
+  const height = lastStaffTop + LINE_GAP * 4 + padTop + lyricBottomPad;
   const bars = beatsPerBar(timeSignature);
   const beats = Math.max(bars * (compact ? 2 : 4), totalBeats(notes), bars);
   const width = contentStart + beats * beatW + 24;
@@ -157,8 +161,35 @@ export function StaffView({
           const top = staffTopOf(staff);
           const range = STAFF_RANGE[staff];
           const x = contentStart + n.start * beatW + beatW * n.beats * 0.35;
+          const isSelected = selectedNoteId === n.id;
+          const lyricY = top + LINE_GAP * 4 + (compact ? 16 : 22);
+
           if (n.type === "rest") {
-            return <Rest key={n.id} x={x} y={top + LINE_GAP * 1.5} beats={n.beats} gap={LINE_GAP} />;
+            return (
+              <g
+                key={n.id}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onNoteClick?.(n.id);
+                }}
+                className={onNoteClick ? "cursor-pointer" : undefined}
+              >
+                <Rest x={x} y={top + LINE_GAP * 1.5} beats={n.beats} gap={LINE_GAP} />
+                {n.lyric && (
+                  <text
+                    x={x}
+                    y={lyricY}
+                    textAnchor="middle"
+                    dominantBaseline="middle"
+                    fontSize={compact ? 12 : 14}
+                    fontFamily="Noto Serif SC, Georgia, serif"
+                    className="fill-paper-fg/60 select-none"
+                  >
+                    {n.lyric}
+                  </text>
+                )}
+              </g>
+            );
           }
           if (n.midi == null) return null;
           const { step, accidental } = pitchInKey(n.midi, keySignature);
@@ -178,6 +209,14 @@ export function StaffView({
               className={onNoteClick ? "cursor-pointer" : undefined}
             >
               <Ledgers step={step} x={x} yOf={(s) => yOf(s, staff)} topStep={range.topStep} botStep={range.botStep} />
+              {isSelected && (
+                <circle
+                  cx={x}
+                  cy={y}
+                  r={compact ? 11 : 14}
+                  className="fill-accent/20 stroke-accent stroke-[1.5]"
+                />
+              )}
               {(isCurrent || st === "current") && (
                 <circle cx={x} cy={y} r={compact ? 9 : 12} className="fill-success/25" />
               )}
@@ -195,6 +234,41 @@ export function StaffView({
                 compact={!!compact}
                 ink={st === "ok" ? "var(--color-success)" : st === "wrong" ? "var(--color-danger)" : "currentColor"}
               />
+              {n.lyric && (
+                <g className="select-none">
+                  {isSelected && (
+                    <rect
+                      x={x - 12}
+                      y={lyricY - 11}
+                      width={24}
+                      height={22}
+                      rx={4}
+                      className="fill-accent/25 stroke-accent stroke-[1.2]"
+                    />
+                  )}
+                  <text
+                    x={x}
+                    y={lyricY}
+                    textAnchor="middle"
+                    dominantBaseline="middle"
+                    fontSize={compact ? 12 : 14}
+                    fontFamily="Noto Serif SC, Georgia, serif"
+                    className={cn(
+                      isSelected
+                        ? "fill-accent font-bold"
+                        : isCurrent || st === "current"
+                          ? "fill-success font-bold"
+                          : st === "ok"
+                            ? "fill-success/90 font-medium"
+                            : st === "wrong"
+                              ? "fill-danger/90 font-medium"
+                              : "fill-paper-fg/85",
+                    )}
+                  >
+                    {n.lyric}
+                  </text>
+                </g>
+              )}
             </g>
           );
         })}

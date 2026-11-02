@@ -6,6 +6,7 @@ import { AppShell } from "@/components/app-shell";
 import { PieceEditor, emptyDraft, type Draft } from "@/components/piece-editor";
 import { Button } from "@/components/ui/button";
 import { recognizeScore } from "@/lib/ai/server";
+import { alignLyricsToNotes, tokenizeLyrics } from "@/lib/music/lyrics";
 import { parseMidiFile } from "@/lib/music/midi-capture";
 import { parseNotation, serializeNotation } from "@/lib/music/notation";
 import { inferClef } from "@/lib/music/theory";
@@ -74,7 +75,11 @@ function NewPiece() {
         );
         return;
       }
-      const notes = parseNotation(result.notation, result.clef);
+      const parsedNotes = parseNotation(result.notation, result.clef);
+      const notes =
+        result.lyrics && !parsedNotes.some((n) => !!n.lyric)
+          ? alignLyricsToNotes(parsedNotes, tokenizeLyrics(result.lyrics))
+          : parsedNotes;
       if (!notes.length) toast.message("已读到图片，请核对手写记谱。");
       setDraft(
         emptyDraft({
@@ -85,9 +90,10 @@ function NewPiece() {
           key: result.key,
           timeSignature: result.timeSignature,
           tempo: result.tempo,
-          notation: result.notation,
+          notation: serializeNotation(notes, result.timeSignature),
           notes,
           clef: result.clef,
+          lyricsText: result.lyrics,
         }),
       );
       toast.success("已识别，请核对五线谱后保存。");

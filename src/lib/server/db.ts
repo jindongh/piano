@@ -19,6 +19,7 @@ interface PieceRow {
   created_at: number;
   updated_at: number;
   history: string;
+  lyrics_text?: string | null;
 }
 
 let dbInstance: Database.Database | null = null;
@@ -53,9 +54,15 @@ export function getDatabase(): Database.Database {
       clef TEXT NOT NULL DEFAULT 'treble',
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL,
-      history TEXT NOT NULL DEFAULT '[]'
+      history TEXT NOT NULL DEFAULT '[]',
+      lyrics_text TEXT NOT NULL DEFAULT ''
     );
   `);
+
+  // Migrate table if lyrics_text column is not yet present
+  try {
+    db.exec("ALTER TABLE pieces ADD COLUMN lyrics_text TEXT NOT NULL DEFAULT ''");
+  } catch {}
 
   // Seed demo pieces if the table is completely empty
   const countRow = db.prepare("SELECT COUNT(*) as count FROM pieces").get() as { count: number };
@@ -64,11 +71,11 @@ export function getDatabase(): Database.Database {
       INSERT INTO pieces (
         id, title, composer, key, time_signature, tempo,
         notation, notes, image_thumb, source, clef,
-        created_at, updated_at, history
+        created_at, updated_at, history, lyrics_text
       ) VALUES (
         @id, @title, @composer, @key, @time_signature, @tempo,
         @notation, @notes, @image_thumb, @source, @clef,
-        @created_at, @updated_at, @history
+        @created_at, @updated_at, @history, @lyrics_text
       )
     `);
 
@@ -89,11 +96,27 @@ export function getDatabase(): Database.Database {
           created_at: p.createdAt || Date.now(),
           updated_at: p.updatedAt || Date.now(),
           history: JSON.stringify(p.history || []),
+          lyrics_text: p.lyricsText || "",
         });
       }
     });
 
     insertMany(DEMO_PIECES);
+  } else {
+    // Sync demo pieces with lyrics if they exist without lyrics
+    for (const d of DEMO_PIECES) {
+      if (!d.lyricsText) continue;
+      const existing = db.prepare("SELECT notes, lyrics_text FROM pieces WHERE id = ?").get(d.id) as
+        | { notes: string; lyrics_text: string }
+        | undefined;
+      if (existing && (!existing.lyrics_text || existing.lyrics_text.length === 0)) {
+        db.prepare("UPDATE pieces SET notes = ?, lyrics_text = ? WHERE id = ?").run(
+          JSON.stringify(d.notes),
+          d.lyricsText,
+          d.id,
+        );
+      }
+    }
   }
 
   dbInstance = db;
@@ -131,6 +154,7 @@ function rowToPiece(row: PieceRow): Piece {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     history,
+    lyricsText: row.lyrics_text || undefined,
   };
 }
 
@@ -153,11 +177,11 @@ export function insertPiece(piece: Piece): Piece {
     INSERT INTO pieces (
       id, title, composer, key, time_signature, tempo,
       notation, notes, image_thumb, source, clef,
-      created_at, updated_at, history
+      created_at, updated_at, history, lyrics_text
     ) VALUES (
       @id, @title, @composer, @key, @time_signature, @tempo,
       @notation, @notes, @image_thumb, @source, @clef,
-      @created_at, @updated_at, @history
+      @created_at, @updated_at, @history, @lyrics_text
     )
     ON CONFLICT(id) DO UPDATE SET
       title = excluded.title,
@@ -171,7 +195,8 @@ export function insertPiece(piece: Piece): Piece {
       source = excluded.source,
       clef = excluded.clef,
       updated_at = excluded.updated_at,
-      history = excluded.history
+      history = excluded.history,
+      lyrics_text = excluded.lyrics_text
   `);
 
   stmt.run({
@@ -189,6 +214,7 @@ export function insertPiece(piece: Piece): Piece {
     created_at: piece.createdAt || Date.now(),
     updated_at: piece.updatedAt || Date.now(),
     history: JSON.stringify(piece.history || []),
+    lyrics_text: piece.lyricsText || "",
   });
 
   return piece;
@@ -219,7 +245,8 @@ export function updatePieceInDb(id: string, patch: Partial<Piece>): Piece | null
       source = @source,
       clef = @clef,
       updated_at = @updated_at,
-      history = @history
+      history = @history,
+      lyrics_text = @lyrics_text
     WHERE id = @id
   `);
 
@@ -237,6 +264,7 @@ export function updatePieceInDb(id: string, patch: Partial<Piece>): Piece | null
     clef: updated.clef || "treble",
     updated_at: updated.updatedAt,
     history: JSON.stringify(updated.history || []),
+    lyrics_text: updated.lyricsText || "",
   });
 
   return updated;

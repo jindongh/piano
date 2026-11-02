@@ -34,21 +34,24 @@ function durationToken(beats: number): string {
   return "";
 }
 
-type TokenPitch = { midi: number; beats: number } | { rest: true; beats: number };
+type TokenPitch =
+  | { midi: number; beats: number; lyric?: string }
+  | { rest: true; beats: number; lyric?: string };
 
 function parsePitchToken(token: string): TokenPitch | null {
-  const rest = /^(?:R|r)(\/\d+\.*)?$/.exec(token);
-  if (rest) return { rest: true, beats: parseDuration(rest[1]) };
+  const rest = /^(?:R|r)(\/\d+\.*)?(?:"([^"]*)"|\(([^)]*)\))?$/.exec(token);
+  if (rest) return { rest: true, beats: parseDuration(rest[1]), lyric: rest[2] ?? rest[3] };
 
-  const m = /^([A-G][#b]?(?:-?\d))(\/\d+\.*)?$/.exec(token);
+  const m = /^([A-G][#b]?(?:-?\d))(\/\d+\.*)?(?:"([^"]*)"|\(([^)]*)\))?$/.exec(token);
   if (!m) return null;
   const midi = nameToMidi(m[1]!);
   if (midi == null) return null;
-  return { midi, beats: parseDuration(m[2]) };
+  const lyric = m[3] ?? m[4];
+  return { midi, beats: parseDuration(m[2]), lyric: lyric || undefined };
 }
 
-function withStaff(midi: number, beats: number, start: number, id: string): ScoreNote {
-  return { id, type: "note", midi, beats, start, staff: staffForMidi(midi, "grand") };
+function withStaff(midi: number, beats: number, start: number, id: string, lyric?: string): ScoreNote {
+  return { id, type: "note", midi, beats, start, staff: staffForMidi(midi, "grand"), lyric };
 }
 
 export function parseNotation(input: string, _clef: ClefKind = "grand"): ScoreNote[] {
@@ -63,22 +66,35 @@ export function parseNotation(input: string, _clef: ClefKind = "grand"): ScoreNo
       const close = raw.indexOf("]");
       if (close < 0) continue;
       const inner = raw.slice(1, close);
-      const durPart = raw.slice(close + 1);
+      const after = raw.slice(close + 1);
+      const mAfter = /^(\/\d+\.*)?(?:"([^"]*)"|\(([^)]*)\))?$/.exec(after);
+      const durPart = mAfter?.[1];
+      const lyric = mAfter?.[2] ?? mAfter?.[3] ?? undefined;
       const beats = parseDuration(durPart || undefined);
-      for (const p of inner.split(/[,]+/)) {
-        const midi = nameToMidi(p.trim());
-        if (midi == null) continue;
-        notes.push(withStaff(midi, beats, t, `n${notes.length}`));
-      }
+      const pitches = inner.split(/[,]+/).map((p) => p.trim()).filter(Boolean);
+      pitches.forEach((p, idx) => {
+        const midi = nameToMidi(p);
+        if (midi == null) return;
+        // Attach lyric to the last (typically melody/top) note in chord
+        const noteLyric = idx === pitches.length - 1 ? lyric : undefined;
+        notes.push(withStaff(midi, beats, t, `n${notes.length}`, noteLyric));
+      });
       t += beats;
       continue;
     }
     const parsed = parsePitchToken(raw);
     if (!parsed) continue;
     if ("rest" in parsed) {
-      notes.push({ id: `n${notes.length}`, type: "rest", beats: parsed.beats, start: t, staff: _clef === "bass" ? "bass" : "treble" });
+      notes.push({
+        id: `n${notes.length}`,
+        type: "rest",
+        beats: parsed.beats,
+        start: t,
+        staff: _clef === "bass" ? "bass" : "treble",
+        lyric: parsed.lyric,
+      });
     } else {
-      notes.push(withStaff(parsed.midi, parsed.beats, t, `n${notes.length}`));
+      notes.push(withStaff(parsed.midi, parsed.beats, t, `n${notes.length}`, parsed.lyric));
     }
     t += parsed.beats;
   }
@@ -110,19 +126,28 @@ export function serializeNotation(notes: ScoreNote[], time?: TimeSig): string {
     const rest = g.find((n) => n.type === "rest");
     const beats = g[0]?.beats ?? 1;
     const dur = durationToken(beats);
+    const lyric = g.find((n) => n.lyric)?.lyric;
+    const lyricStr = lyric ? `"${lyric}"` : "";
+
     if (sounding.length > 1) {
       const chord = sounding.map((n) => midiToName(n.midi!)).join(",");
-      tokens.push(`[${chord}]${dur}`);
+      tokens.push(`[${chord}]${dur}${lyricStr}`);
     } else if (sounding.length === 1) {
-      tokens.push(`${midiToName(sounding[0]!.midi!)}${dur}`);
+      tokens.push(`${midiToName(sounding[0]!.midi!)}${dur}${lyricStr}`);
     } else if (rest) {
-      tokens.push(`R${dur || "/4"}`);
+      tokens.push(`R${dur || "/4"}${lyricStr}`);
     }
   }
   return tokens.join(" ");
 }
 
-export function appendNote(notes: ScoreNote[], midi: number, beats: number, staff?: StaffId): ScoreNote[] {
+export function appendNote(
+  notes: ScoreNote[],
+  midi: number,
+  beats: number,
+  staff?: StaffId,
+  lyric?: string,
+): ScoreNote[] {
   const lastEnd = notes.reduce((m, n) => Math.max(m, n.start + n.beats), 0);
   return [
     ...notes,
@@ -133,6 +158,7 @@ export function appendNote(notes: ScoreNote[], midi: number, beats: number, staf
       beats,
       start: lastEnd,
       staff: staff ?? staffForMidi(midi, "grand"),
+      lyric,
     },
   ];
 }

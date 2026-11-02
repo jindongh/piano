@@ -316,6 +316,11 @@ export function PracticeRoom({ piece }: { piece: Piece }) {
 
   const hitCount = Object.values(statuses).filter((s) => s === "ok").length;
   const progress = expected.length === 0 ? 0 : Math.min(100, (hitCount / expected.length) * 100);
+  const currentLyric = (() => {
+    if (phase !== "playing" && phase !== "paused") return null;
+    const curNote = expected[cursor];
+    return curNote?.lyric || null;
+  })();
   const expectedMidis = (() => {
     if (phase !== "playing" || mode !== "follow") return null;
     const matched = matchedRef.current;
@@ -424,6 +429,12 @@ export function PracticeRoom({ piece }: { piece: Piece }) {
         </div>
 
         <div className="flex items-center gap-3">
+          {currentLyric && (
+            <div className="flex items-center gap-1.5 rounded-lg border border-accent/40 bg-accent/15 px-2.5 py-1 text-sm font-bold text-accent shadow-sm animate-in fade-in">
+              <span className="text-[11px] font-normal text-muted">歌词</span>
+              <span className="font-serif text-base">{currentLyric}</span>
+            </div>
+          )}
           <Progress value={progress} className="flex-1" />
           <span className="text-xs text-muted tabular-nums">
             {Math.min(hitCount, expected.length)}/{expected.length}

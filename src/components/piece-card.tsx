@@ -85,6 +85,7 @@ export function PieceCard({ piece }: { piece: Piece }) {
             {piece.timeSignature.num}/{piece.timeSignature.den}
           </Badge>
           <Badge>{noteCount} 音</Badge>
+          {piece.notes.some((n) => !!n.lyric) && <Badge variant="paper">歌词</Badge>}
           {last && (
             <Badge variant={last.grade === "S" || last.grade === "A" ? "success" : "paper"}>
               最近 {last.grade} · {last.score}

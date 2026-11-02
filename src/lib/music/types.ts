@@ -11,6 +11,8 @@ export type ScoreNote = {
   start: number;
   /** Which staff to draw on in a grand-staff score */
   staff?: StaffId;
+  /** Lyric syllable or word for this note */
+  lyric?: string;
 };
 
 export type TimeSig = { num: number; den: number };
@@ -46,6 +48,8 @@ export type Piece = {
   key: string;
   clef: ClefKind;
   history: PracticeRecord[];
+  /** Full text of lyrics */
+  lyricsText?: string;
 };
 
 export type PlayedEvent = {
