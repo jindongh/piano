@@ -6,23 +6,7 @@ import { cn } from "@/lib/utils";
 export function useHydratePieces() {
   const hydrated = usePiecesStore((s) => s.hydrated);
   useEffect(() => {
-    const unsub = usePiecesStore.persist.onFinishHydration(() => {
-      const s = usePiecesStore.getState();
-      if (!s.hasSeeded) s.seedDemos();
-      s.setHydrated();
-    });
-    void usePiecesStore.persist.rehydrate();
-    const t = window.setTimeout(() => {
-      const s = usePiecesStore.getState();
-      if (!s.hydrated) {
-        if (!s.hasSeeded) s.seedDemos();
-        s.setHydrated();
-      }
-    }, 400);
-    return () => {
-      unsub();
-      window.clearTimeout(t);
-    };
+    void usePiecesStore.getState().loadFromServer();
   }, []);
   return hydrated;
 }

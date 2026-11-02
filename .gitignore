@@ -12,3 +12,8 @@ dist
 .nitro
 .env
 .env.*
+data
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
