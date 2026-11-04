@@ -34,7 +34,7 @@ export function StaffView({
 }: Props) {
   const scroller = useRef<HTMLDivElement>(null);
   const grand = clef === "grand";
-  const hasLyrics = useMemo(() => notes.some((n) => !!n.lyric), [notes]);
+  const staffs: StaffId[] = clef === "bass" ? ["bass"] : grand ? ["treble", "bass"] : ["treble"];
   const LINE_GAP = compact ? 8 : 12;
   const padTop = compact ? (grand ? 20 : 16) : grand ? 36 : 28;
   const beatW = compact ? 26 : 44;
@@ -42,13 +42,121 @@ export function StaffView({
   const acc = keyAccidentals(keySignature);
   const accW = acc.letters.length * (compact ? 8 : 11);
   const contentStart = leftPad + accW + (compact ? 16 : 22);
-  const gapBetween = compact ? (hasLyrics && grand ? 34 : 22) : (hasLyrics && grand ? 48 : 36);
+
+  function staffForNote(n: ScoreNote): StaffId {
+    if (clef === "treble") return "treble";
+    if (clef === "bass") return "bass";
+    if (n.staff) return n.staff;
+    if (n.midi == null) return "treble";
+    return n.midi >= 60 ? "treble" : "bass";
+  }
+
   const trebleTop = padTop;
-  const bassTop = grand ? trebleTop + LINE_GAP * 4 + gapBetween : padTop;
-  const staffs: StaffId[] = clef === "bass" ? ["bass"] : grand ? ["treble", "bass"] : ["treble"];
-  const lastStaffTop = staffs[staffs.length - 1] === "bass" ? bassTop : trebleTop;
-  const lyricBottomPad = hasLyrics ? (compact ? 22 : 30) : 0;
-  const height = lastStaffTop + LINE_GAP * 4 + padTop + lyricBottomPad;
+  const ry = compact ? 3.6 : 4.5;
+  const stemLen = LINE_GAP * 3.1;
+  const lyricFontSize = compact ? 12 : 14;
+  const lyricGap = compact ? 12 : 16;
+
+  // Calculate lowest point on treble staff across all sounding notes, stems, and ledger lines
+  let trebleLowest = trebleTop + 4 * LINE_GAP;
+  if (clef !== "bass") {
+    for (const n of notes) {
+      if (staffForNote(n) !== "treble" || n.type !== "note" || n.midi == null) continue;
+      const { step } = pitchInKey(n.midi, keySignature);
+      const range = STAFF_RANGE.treble;
+      const cy = trebleTop + (range.topStep - step) * (LINE_GAP / 2);
+      let bottom = cy + ry;
+      if (step < range.botStep) {
+        const lowestLedger = step - (step % 2 === 0 ? 0 : 1);
+        const ledgerY = trebleTop + (range.topStep - lowestLedger) * (LINE_GAP / 2);
+        bottom = Math.max(bottom, ledgerY + 2);
+      }
+      const stemUp = step < range.midStep;
+      if (!stemUp && n.beats < 3.5) {
+        bottom = Math.max(bottom, cy + stemLen + 2);
+      }
+      if (bottom > trebleLowest) trebleLowest = bottom;
+    }
+  }
+
+  const trebleHasLyrics = notes.some(
+    (n) => (clef === "treble" || (grand && staffForNote(n) === "treble")) && !!n.lyric,
+  );
+  const trebleLyricY = trebleLowest + lyricGap + lyricFontSize / 2;
+  const trebleLyricBottom = trebleHasLyrics ? trebleLyricY + lyricFontSize / 2 : trebleLowest;
+
+  // Calculate bassTop for grand staff
+  let bassTop = padTop;
+  if (grand) {
+    const lyricToBassClearance = compact ? 16 : 22;
+    bassTop = Math.max(
+      trebleTop + 4 * LINE_GAP + (compact ? 28 : 40),
+      trebleLyricBottom + (trebleHasLyrics ? lyricToBassClearance : compact ? 14 : 20),
+    );
+
+    // If bass staff has high notes reaching upwards, make sure bassTop doesn't cause them to hit treble
+    let maxBassAbove = 0;
+    for (const n of notes) {
+      if (staffForNote(n) !== "bass" || n.type !== "note" || n.midi == null) continue;
+      const { step } = pitchInKey(n.midi, keySignature);
+      const range = STAFF_RANGE.bass;
+      let above = (step - range.topStep) * (LINE_GAP / 2) + ry;
+      if (step > range.topStep) {
+        const highestLedger = step + (step % 2 === 0 ? 0 : 1);
+        const ledgerAbove = (highestLedger - range.topStep) * (LINE_GAP / 2) + 2;
+        above = Math.max(above, ledgerAbove);
+      }
+      const stemUp = step < range.midStep;
+      if (stemUp && n.beats < 3.5) {
+        above = Math.max(above, (step - range.topStep) * (LINE_GAP / 2) + stemLen);
+      }
+      if (above > maxBassAbove) maxBassAbove = above;
+    }
+    if (maxBassAbove > 0) {
+      bassTop = Math.max(bassTop, trebleLyricBottom + (compact ? 8 : 12) + maxBassAbove);
+    }
+  }
+
+  function staffTopOf(id: StaffId) {
+    if (clef === "bass") return padTop;
+    return id === "bass" ? bassTop : trebleTop;
+  }
+
+  function yOf(step: number, id: StaffId) {
+    const range = STAFF_RANGE[id];
+    return staffTopOf(id) + (range.topStep - step) * (LINE_GAP / 2);
+  }
+
+  // Calculate lowest point on bass staff
+  let bassLowest = bassTop + 4 * LINE_GAP;
+  if (clef === "bass" || grand) {
+    for (const n of notes) {
+      if (staffForNote(n) !== "bass" || n.type !== "note" || n.midi == null) continue;
+      const { step } = pitchInKey(n.midi, keySignature);
+      const range = STAFF_RANGE.bass;
+      const cy = yOf(step, "bass");
+      let bottom = cy + ry;
+      if (step < range.botStep) {
+        const lowestLedger = step - (step % 2 === 0 ? 0 : 1);
+        const ledgerY = yOf(lowestLedger, "bass");
+        bottom = Math.max(bottom, ledgerY + 2);
+      }
+      const stemUp = step < range.midStep;
+      if (!stemUp && n.beats < 3.5) {
+        bottom = Math.max(bottom, cy + stemLen + 2);
+      }
+      if (bottom > bassLowest) bassLowest = bottom;
+    }
+  }
+
+  const bassHasLyrics = notes.some(
+    (n) => (clef === "bass" || (grand && staffForNote(n) === "bass")) && !!n.lyric,
+  );
+  const bassLyricY = bassLowest + lyricGap + lyricFontSize / 2;
+  const bassLyricBottom = bassHasLyrics ? bassLyricY + lyricFontSize / 2 : bassLowest;
+
+  const totalContentBottom = staffs[staffs.length - 1] === "bass" ? bassLyricBottom : trebleLyricBottom;
+  const height = totalContentBottom + padTop;
   const bars = beatsPerBar(timeSignature);
   const beats = Math.max(bars * (compact ? 2 : 4), totalBeats(notes), bars);
   const width = contentStart + beats * beatW + 24;
@@ -64,24 +172,6 @@ export function StaffView({
     el?.scrollIntoView({ behavior: "smooth", inline: "center", block: "nearest" });
   }, [cursorIndex]);
 
-  function staffTopOf(id: StaffId) {
-    if (clef === "bass") return padTop;
-    return id === "bass" ? bassTop : trebleTop;
-  }
-
-  function yOf(step: number, id: StaffId) {
-    const range = STAFF_RANGE[id];
-    return staffTopOf(id) + (range.topStep - step) * (LINE_GAP / 2);
-  }
-
-  function staffForNote(n: ScoreNote): StaffId {
-    if (clef === "treble") return "treble";
-    if (clef === "bass") return "bass";
-    if (n.staff) return n.staff;
-    if (n.midi == null) return "treble";
-    return n.midi >= 60 ? "treble" : "bass";
-  }
-
   function handleClick(e: MouseEvent<SVGSVGElement>) {
     if (!onPitchAppend) return;
     const svg = e.currentTarget;
@@ -93,7 +183,7 @@ export function StaffView({
     const loc = pt.matrixTransform(ctm.inverse());
     let staff: StaffId = staffs[0]!;
     if (grand) {
-      const mid = trebleTop + LINE_GAP * 4 + gapBetween / 2;
+      const mid = (trebleTop + 4 * LINE_GAP + bassTop) / 2;
       staff = loc.y < mid ? "treble" : "bass";
     }
     const range = STAFF_RANGE[staff];
@@ -162,7 +252,7 @@ export function StaffView({
           const range = STAFF_RANGE[staff];
           const x = contentStart + n.start * beatW + beatW * n.beats * 0.35;
           const isSelected = selectedNoteId === n.id;
-          const lyricY = top + LINE_GAP * 4 + (compact ? 16 : 22);
+          const lyricY = staff === "bass" ? bassLyricY : trebleLyricY;
 
           if (n.type === "rest") {
             return (
@@ -238,10 +328,10 @@ export function StaffView({
                 <g className="select-none">
                   {isSelected && (
                     <rect
-                      x={x - 12}
-                      y={lyricY - 11}
-                      width={24}
-                      height={22}
+                      x={x - Math.max(14, n.lyric.length * 6)}
+                      y={lyricY - 12}
+                      width={Math.max(28, n.lyric.length * 12)}
+                      height={24}
                       rx={4}
                       className="fill-accent/25 stroke-accent stroke-[1.2]"
                     />
@@ -251,7 +341,7 @@ export function StaffView({
                     y={lyricY}
                     textAnchor="middle"
                     dominantBaseline="middle"
-                    fontSize={compact ? 12 : 14}
+                    fontSize={compact ? 11 : n.lyric.length >= 4 ? 12 : 14}
                     fontFamily="Noto Serif SC, Georgia, serif"
                     className={cn(
                       isSelected
